@@ -9,20 +9,18 @@ import matplotlib.dates as mdates
 
 # ================= 颜色配置（新增） =================
 # 【NOTICE】在这里调制你喜欢的配色~
-
 COLOR_SCHEME = {
     "Work": "#E74C3C",    # 鲜艳红色
-    "Chores": "#F39C12",  # 橙黄色
+    "Chores": "#2ECC71",  # 鲜明绿色
     "Rest/Entertain": "#3498DB",  # 深蓝色
-    "Sleep": "#2ECC71"    # 鲜明绿色
+    "Sleep": "#9B59B6",    # 紫色
+    
+    # 新增小按钮颜色
+    "Study": "#9B59B6",    # 紫色
+    "Exercise": "#1ABC9C",  # 蓝绿色
+    "Meeting": "#E67E22",  # 橙色
+    "Commute": "#95A5A6"   # 灰色
 }
-
-# COLOR_SCHEME = {
-#     "Work": "#E74C3C",    # 鲜艳红色
-#     "Chores": "#2ECC71",  # 鲜明绿色
-#     "Rest/Entertain": "#3498DB",  # 深蓝色
-#     "Sleep": "#9B59B6"    # 紫色
-# }
 
 # ================= 数据库管理模块 =================
 class TimeTrackerDB:
@@ -197,49 +195,72 @@ class TimeTrackerApp(tk.Tk):
                  foreground="#333333").pack(pady=15)
         status_frame.pack(fill='x')
 
-        # 按钮区域（修改布局和样式）
-        btn_frame = ttk.Frame(self)
-        buttons = [
+        # ================= 修改按钮区域 =================
+        # 创建主按钮容器
+        main_btn_frame = ttk.Frame(self)
+        
+        # 原始4个大按钮（2x2网格）
+        big_buttons = [
             ("Work", 0, 0),
             ("Chores", 0, 1),
             ("Rest/Entertain", 1, 0),
             ("Sleep", 1, 1)
         ]
 
-        # 统一按钮样式
-        self.style.configure('Rounded.TButton', 
-                           borderwidth=0,
-                           relief="flat",
-                           padding=10,
-                           font=('微软雅黑', 12, 'bold'),
-                           foreground="white",
-                           width=12,
-                           borderradius=15)
+        # 新增4个小按钮（1x4网格）
+        small_buttons = [
+            ("Study", 0, 0),
+            ("Exercise", 0, 1),
+            ("Meeting", 0, 2),
+            ("Commute", 0, 3)
+        ]
 
-        # 在按钮创建代码中修改配置方式
-        for text, row, col in buttons:
+        # 创建大按钮区域
+        big_btn_frame = ttk.Frame(main_btn_frame)
+        for text, row, col in big_buttons:
             btn = tk.Button(
-                btn_frame,
+                big_btn_frame,
                 text=text,
                 command=lambda t=text: self._handle_button_click(t),
-                bg=COLOR_SCHEME[text],  # 正确参数名称为bg
-                activebackground=COLOR_SCHEME[text],
+                bg=COLOR_SCHEME.get(text, "#CCCCCC"),  # 使用默认颜色
+                activebackground=COLOR_SCHEME.get(text, "#CCCCCC"),
                 fg="white",
                 font=('微软雅黑', 12, 'bold'),
                 relief="flat",
-                padx=20,
-                pady=10,
+                padx=15,
+                pady=8,
                 borderwidth=0,
                 highlightthickness=0,
             )
-            # 删除原来的btn.configure语句
-            btn.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-            btn_frame.grid_rowconfigure(row, weight=1, uniform="btns")
-            btn_frame.grid_columnconfigure(col, weight=1, uniform="btns")
+            btn.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+            big_btn_frame.grid_rowconfigure(row, weight=1, uniform="big_btns")
+            big_btn_frame.grid_columnconfigure(col, weight=1, uniform="big_btns")
+        big_btn_frame.pack(pady=(0, 10), fill='both', expand=True)
 
-        btn_frame.pack(pady=20, padx=20, fill='both', expand=True)
+        # 创建小按钮区域
+        small_btn_frame = ttk.Frame(main_btn_frame)
+        for text, row, col in small_buttons:
+            btn = tk.Button(
+                small_btn_frame,
+                text=text,
+                command=lambda t=text: self._handle_button_click(t),
+                bg=COLOR_SCHEME.get(text, "#666666"),  # 小按钮使用不同颜色
+                activebackground=COLOR_SCHEME.get(text, "#666666"),
+                fg="white",
+                font=('微软雅黑', 10),  # 更小字号
+                relief="flat",
+                padx=8,
+                pady=4,
+                borderwidth=0,
+                highlightthickness=0,
+            )
+            btn.grid(row=row, column=col, padx=4, pady=2, sticky="nsew")
+            small_btn_frame.grid_columnconfigure(col, weight=1, uniform="small_btns")
+        small_btn_frame.pack(fill='both', expand=True)
 
-        # 功能按钮区域
+        main_btn_frame.pack(pady=20, padx=20, fill='both', expand=True)
+
+        # ================= 功能按钮区域（保持不变） =================
         control_frame = ttk.Frame(self)
         ttk.Button(
             control_frame,
@@ -473,13 +494,7 @@ class TimeTrackerApp(tk.Tk):
             tk.messagebox.showinfo("提示", "没有有效数据可供展示")
             return
 
-        color_mapping = {
-            "Work": "#FF6B6B",
-            "Chores": "#4ECDC4",
-            "Rest/Entertain": "#45B7D1",
-            "Sleep": "#96CEB4"
-        }
-        used_colors = [color_mapping[act] for act in activities]
+        used_colors = [COLOR_SCHEME[act] for act in activities]
 
         # 柱状图
         ax1 = fig.add_subplot(211)
