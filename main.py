@@ -8,12 +8,21 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.dates as mdates
 
 # ================= 颜色配置（新增） =================
+# 【NOTICE】在这里调制你喜欢的配色~
+
 COLOR_SCHEME = {
     "Work": "#E74C3C",    # 鲜艳红色
-    "Chores": "#2ECC71",  # 鲜明绿色
+    "Chores": "#F39C12",  # 橙黄色
     "Rest/Entertain": "#3498DB",  # 深蓝色
-    "Sleep": "#9B59B6"    # 紫色
+    "Sleep": "#2ECC71"    # 鲜明绿色
 }
+
+# COLOR_SCHEME = {
+#     "Work": "#E74C3C",    # 鲜艳红色
+#     "Chores": "#2ECC71",  # 鲜明绿色
+#     "Rest/Entertain": "#3498DB",  # 深蓝色
+#     "Sleep": "#9B59B6"    # 紫色
+# }
 
 # ================= 数据库管理模块 =================
 class TimeTrackerDB:
@@ -138,12 +147,21 @@ class TimeTrackerDB:
                 ORDER BY start_time
             ''')
             return cursor.fetchall()
+        
+    def _clear_history(self):
+        """清空历史记录"""
+        if tk.messagebox.askyesno("确认", "确定要清空所有历史记录吗？"):
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM time_records")
+                conn.execute("DELETE FROM current_status")
+                conn.commit()
+            tk.messagebox.showinfo("提示", "历史记录已清空")
 
 # ================= GUI界面模块 =================
 class TimeTrackerApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("时间跟踪器")
+        self.title("QuarterTime")
         self.geometry("500x400")
         
         # 初始化样式系统（新增关键修复）
@@ -252,7 +270,7 @@ class TimeTrackerApp(tk.Tk):
             self.status_var.set(f"当前状态：{activity}\n开始时间：{display_time}")
         else:
             self.status_var.set("当前状态：未开始")
-
+        
     def show_history(self):
         """显示完整历史记录"""
         records = self.db.get_history()
@@ -279,7 +297,7 @@ class TimeTrackerApp(tk.Tk):
         
         for record in records:
             end_time = record[2] if record[2] else "进行中"
-            duration = f"{record[3]}秒" if record[3] >=0 else "计算错误"
+            duration = f"{record[3]}秒" if record[3] >= 0 else "计算错误"
             tree.insert('', 'end', values=(
                 record[0],
                 record[1],
@@ -292,6 +310,14 @@ class TimeTrackerApp(tk.Tk):
         
         tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+
+        # 添加清空记录按钮
+        clear_button = ttk.Button(
+            history_window,
+            text="清空记录",
+            command=self.db._clear_history
+        )
+        clear_button.pack(pady=10)
 
     def show_analysis(self):
         """显示带日期选择的分析窗口"""
@@ -412,13 +438,14 @@ class TimeTrackerApp(tk.Tk):
                         y=0, 
                         width=duration, 
                         left=draw_start,
-                        height=0.5,
+                        height=1.2,
                         color=COLOR_SCHEME[record[0]],
                         edgecolor='white'
                     )
 
             # 设置坐标轴格式
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            ax.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 30]))  # 以整点和半整点为单位
             ax.set_xlim(slot_start.replace(hour=start_hour), slot_end)
             ax.yaxis.set_visible(False)
             ax.grid(axis='x', alpha=0.3)
@@ -472,6 +499,7 @@ class TimeTrackerApp(tk.Tk):
         canvas = FigureCanvasTkAgg(fig, master=parent)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
 
 # ================= 主程序入口 =================
 if __name__ == "__main__":
