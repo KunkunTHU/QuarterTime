@@ -11,9 +11,9 @@ import matplotlib.dates as mdates
 # 【NOTICE】在这里调制你喜欢的配色~
 COLOR_SCHEME = {
     "Work": "#E74C3C",    # 鲜艳红色
-    "Chores": "#2ECC71",  # 鲜明绿色
+    "Chores": "#F39C12",  # 橙黄色
     "Rest/Entertain": "#3498DB",  # 深蓝色
-    "Sleep": "#9B59B6",    # 紫色
+    "Sleep": "#2ECC71",    # 鲜明绿色
     
     # 新增小按钮颜色
     "Study": "#9B59B6",    # 紫色
@@ -399,7 +399,7 @@ class TimeTrackerApp(tk.Tk):
         self.analysis_notebook.add(stats_frame, text="统计")
 
     def _create_timeline_chart(self, parent, records, selected_date):
-        """创建分段时间线图表（修复未来时间问题）"""
+        """创建分段时间线图表（修复刻度标签问题）"""
         fig = plt.Figure(figsize=(10, 8), dpi=100)
         time_slots = [
             ("00:00-06:00", 0, 6),
@@ -408,30 +408,22 @@ class TimeTrackerApp(tk.Tk):
             ("18:00-24:00", 18, 23)
         ]
         
-        now = datetime.now()
-        target_date = selected_date.date() if selected_date else now.date()
-        is_today = (now.date() == target_date)
+        color_map = COLOR_SCHEME
+        target_date = selected_date.date()
         
         axes = fig.subplots(4, 1, gridspec_kw={'height_ratios': [1,1,1,1]})
         
         for idx, (title, start_hour, end_hour) in enumerate(time_slots):
             ax = axes[idx]
-            ax.set_title(f"Time Slot: {title}")
+            ax.set_title(f"Time Quarter: {title}")
             
-            # 设置完整时间段
+            # 固定时间段设置
             slot_start = datetime(target_date.year, target_date.month, target_date.day, start_hour)
             slot_end = datetime(target_date.year, target_date.month, target_date.day, end_hour)
             
             # 处理最后一个时间段
-            if end_hour == 23:
+            if title == "18:00-24:00":
                 slot_end = slot_end.replace(hour=23, minute=59, second=59)
-            
-            # 当日时间处理
-            if is_today:
-                current_time = datetime.now()
-                # 自动调整结束时间为当前时间（如果时间段尚未结束）
-                if slot_end > current_time:
-                    slot_end = current_time
             
             # 绘制时间段背景
             ax.axhspan(ymin=-1, ymax=1, xmin=0, xmax=1, color='#F5F5F5', alpha=0.3)
@@ -439,35 +431,48 @@ class TimeTrackerApp(tk.Tk):
             # 绘制有效记录
             for record in records:
                 start = datetime.strptime(record[1], '%Y-%m-%d %H:%M:%S')
-                end = datetime.strptime(record[2], '%Y-%m-%d %H:%M:%S') if record[2] else now
+                end = datetime.strptime(record[2], '%Y-%m-%d %H:%M:%S') if record[2] else datetime.now()
                 
-                # 过滤非当前时间段记录
-                if start > slot_end or end < slot_start:
+                # 仅处理当日记录
+                if start.date() != target_date:
                     continue
-                
-                # 计算实际绘制范围
+                    
+                # 计算在该时间段内的实际持续时间
                 draw_start = max(start, slot_start)
                 draw_end = min(end, slot_end)
                 
-                # 确保不绘制未来时间
-                if is_today:
-                    draw_end = min(draw_end, now)
+                # 过滤无效时间段
+                if draw_start >= draw_end:
+                    continue
+                    
+                duration_hours = (draw_end - draw_start).total_seconds() / 3600
                 
-                duration = (draw_end - draw_start).total_seconds() / 3600
-                if duration > 0:
-                    ax.barh(
-                        y=0, 
-                        width=duration, 
-                        left=draw_start,
-                        height=1.2,
-                        color=COLOR_SCHEME[record[0]],
-                        edgecolor='white'
-                    )
+                # 计算相对位置
+                left_position = (draw_start - slot_start).total_seconds() / 3600
+                ax.barh(
+                    y=0,
+                    width=duration_hours,
+                    left=left_position,
+                    height=1.5,
+                    color=color_map[record[0]],
+                    edgecolor='white'
+                )
 
-            # 设置坐标轴格式
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-            ax.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 30]))  # 以整点和半整点为单位
-            ax.set_xlim(slot_start.replace(hour=start_hour), slot_end)
+            # 修复刻度标签问题（关键修改）
+            if end_hour == 23:
+                hours_in_slot = end_hour - start_hour+1
+            else:
+                hours_in_slot = end_hour - start_hour
+            ax.set_xlim(0, hours_in_slot)  # 根据实际时间段设置范围
+            ax.set_xticks([x * 0.5 for x in range(0, 2 * hours_in_slot + 1)])  # 包含起始和结束刻度
+            
+            # 生成正确的刻度标签
+            time_labels = [
+                f"{(start_hour + x // 2) % 24:02d}:{(x % 2) * 30:02d}" 
+                for x in range(0, 2 * hours_in_slot + 1)
+            ]
+            ax.set_xticklabels(time_labels)
+            
             ax.yaxis.set_visible(False)
             ax.grid(axis='x', alpha=0.3)
 
@@ -475,7 +480,7 @@ class TimeTrackerApp(tk.Tk):
         canvas = FigureCanvasTkAgg(fig, master=parent)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
+        
     def _create_stat_charts(self, parent, records):
         """创建统计图表（增加数据校验）"""
         fig = plt.Figure(figsize=(10, 8), dpi=100)
