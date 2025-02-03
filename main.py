@@ -548,3 +548,8 @@ class TimeTrackerApp(tk.Tk):
 if __name__ == "__main__":
     app = TimeTrackerApp()
     app.mainloop()
+   
+# 打包成应用程序请用指令：    
+# pyinstaller --onefile --windowed --name QuarterTime main.py
+
+# 如果进行版本更新，原有数据（.db文件）可以保留使用
