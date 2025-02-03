@@ -1,6 +1,6 @@
 import sqlite3
 import tkinter as tk
-from datetime import datetime
+from datetime import datetime, timedelta
 from tkinter import ttk
 from contextlib import contextmanager
 import matplotlib.pyplot as plt
@@ -127,21 +127,43 @@ class TimeTrackerDB:
             ).fetchone()
             return current if current else (None, None)
         
+    # 修改数据库查询方法（关键修改）
     def get_date_records(self, target_date):
-        """获取指定日期的记录"""
+        """获取指定日期及跨日未结束的记录（修正当日开始时间）"""
         date_str = target_date.strftime('%Y-%m-%d')
+        start_of_day = datetime(target_date.year, target_date.month, target_date.day)
+        
         with self._get_connection() as conn:
             cursor = conn.execute(f'''
                 SELECT 
                     activity_type,
-                    start_time,
+                    -- 调整开始时间为当日0点（如果跨日）
+                    CASE 
+                        WHEN start_time < '{start_of_day}' THEN '{start_of_day}' 
+                        ELSE start_time 
+                    END as adjusted_start,
                     COALESCE(end_time, datetime('now')) as end_time,
+                    -- 重新计算持续时间（仅当日部分）
                     MAX(0, 
-                        (strftime('%s', COALESCE(end_time, datetime('now'))) 
-                        - strftime('%s', start_time))
+                        strftime('%s', COALESCE(end_time, datetime('now'))) 
+                        - strftime('%s', 
+                            CASE 
+                                WHEN start_time < '{start_of_day}' THEN '{start_of_day}' 
+                                ELSE start_time 
+                            END
+                        )
                     ) AS duration
                 FROM time_records
-                WHERE date(start_time) = date('{date_str}')
+                WHERE 
+                    (
+                        date(start_time) = date('{date_str}') 
+                        OR 
+                        (
+                            start_time < '{start_of_day}' 
+                            AND 
+                            (end_time >= '{start_of_day}' OR end_time IS NULL)
+                        )
+                    )
                 ORDER BY start_time
             ''')
             return cursor.fetchall()
@@ -424,40 +446,41 @@ class TimeTrackerApp(tk.Tk):
             # 处理最后一个时间段
             if title == "18:00-24:00":
                 slot_end = slot_end.replace(hour=23, minute=59, second=59)
-            
+                
             # 绘制时间段背景
             ax.axhspan(ymin=-1, ymax=1, xmin=0, xmax=1, color='#F5F5F5', alpha=0.3)
             
             # 绘制有效记录
             for record in records:
+                # 使用调整后的开始时间（已在前端处理）
                 start = datetime.strptime(record[1], '%Y-%m-%d %H:%M:%S')
                 end = datetime.strptime(record[2], '%Y-%m-%d %H:%M:%S') if record[2] else datetime.now()
                 
-                # 仅处理当日记录
-                if start.date() != target_date:
-                    continue
-                    
-                # 计算在该时间段内的实际持续时间
+                # 截取在时间段内的有效部分
                 draw_start = max(start, slot_start)
                 draw_end = min(end, slot_end)
                 
-                # 过滤无效时间段
+                # 跳过不在当前时间段的记录
                 if draw_start >= draw_end:
                     continue
                     
                 duration_hours = (draw_end - draw_start).total_seconds() / 3600
                 
-                # 计算相对位置
+                # 计算相对位置（强制从时间段起点开始）
                 left_position = (draw_start - slot_start).total_seconds() / 3600
+                if left_position < 0:
+                    left_position = 0
+                    duration_hours = (draw_end - slot_start).total_seconds() / 3600
+
                 ax.barh(
                     y=0,
                     width=duration_hours,
                     left=left_position,
-                    height=1.5,
+                    height=2*0.618,
                     color=color_map[record[0]],
                     edgecolor='white'
                 )
-
+        
             # 修复刻度标签问题（关键修改）
             if end_hour == 23:
                 hours_in_slot = end_hour - start_hour+1
