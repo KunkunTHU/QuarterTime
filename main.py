@@ -664,6 +664,7 @@ class TimeTrackerApp(tk.Tk):
         ax.set_title(f"Monthly Activity Distribution ({year}-{month:02d})")
         ax.set_xticks(range(1, days_in_month + 1))
         ax.set_ylim(0, 24)
+        ax.set_yticks(range(0, 25, 1))  # 设置Y轴刻度为1小时单位
         ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1))
         ax.grid(axis='y', alpha=0.3)
         
