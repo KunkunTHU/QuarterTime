@@ -168,6 +168,27 @@ class TimeTrackerDB:
             ''')
             return cursor.fetchall()
         
+    def get_month_records(self, year, month):
+        """获取指定月份所有日期的记录（处理跨日记录）"""
+        start_date = datetime(year, month, 1)
+        next_month = month + 1 if month < 12 else 1
+        next_year = year if month < 12 else year + 1
+        end_date = datetime(next_year, next_month, 1) - timedelta(days=1)
+        
+        with self._get_connection() as conn:
+            cursor = conn.execute(f'''
+                SELECT 
+                    activity_type,
+                    start_time,
+                    COALESCE(end_time, datetime('now')) as end_time
+                FROM time_records
+                WHERE 
+                    start_time <= '{end_date}' 
+                    AND 
+                    (end_time >= '{start_date}' OR end_time IS NULL)
+            ''')
+            return cursor.fetchall()
+        
     def _clear_history(self):
         """清空历史记录"""
         if tk.messagebox.askyesno("确认", "确定要清空所有历史记录吗？"):
@@ -363,20 +384,47 @@ class TimeTrackerApp(tk.Tk):
         clear_button.pack(pady=10)
 
     def show_analysis(self):
-        """显示带日期选择的分析窗口"""
+        """显示带日期选择的分析窗口（新增月视图选项卡）"""
         analysis_window = tk.Toplevel(self)
         analysis_window.title("数据分析")
-        analysis_window.geometry("1200x800")
+        analysis_window.geometry("1400x800")
 
-        # 日期选择区域
+        # 日期选择区域（新增年月选择）
         control_frame = ttk.Frame(analysis_window)
         
+        # 日视图日期选择
+        day_control_frame = ttk.Frame(control_frame)
         self.selected_date = tk.StringVar(value=datetime.now().strftime('%Y-%m-%d'))
-        
-        ttk.Label(control_frame, text="选择日期:").pack(side=tk.LEFT, padx=5)
-        date_entry = ttk.Entry(control_frame, textvariable=self.selected_date, width=12)
+        ttk.Label(day_control_frame, text="选择日期:").pack(side=tk.LEFT, padx=5)
+        date_entry = ttk.Entry(day_control_frame, textvariable=self.selected_date, width=12)
         date_entry.pack(side=tk.LEFT, padx=5)
+        day_control_frame.pack(side=tk.LEFT, padx=10)
         
+        # 月视图年月选择
+        month_control_frame = ttk.Frame(control_frame)
+        self.selected_year = tk.IntVar(value=datetime.now().year)
+        self.selected_month = tk.IntVar(value=datetime.now().month)
+        
+        ttk.Label(month_control_frame, text="选择年份:").pack(side=tk.LEFT)
+        year_combo = ttk.Combobox(
+            month_control_frame, 
+            textvariable=self.selected_year,
+            values=list(range(2020, 2031)),
+            width=5
+        )
+        year_combo.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(month_control_frame, text="月份:").pack(side=tk.LEFT)
+        month_combo = ttk.Combobox(
+            month_control_frame,
+            textvariable=self.selected_month,
+            values=list(range(1, 13)),
+            width=3
+        )
+        month_combo.pack(side=tk.LEFT, padx=5)
+        month_control_frame.pack(side=tk.LEFT, padx=10)
+        
+        # 应用按钮
         ttk.Button(
             control_frame,
             text="应用",
@@ -389,6 +437,7 @@ class TimeTrackerApp(tk.Tk):
         self.analysis_notebook = ttk.Notebook(analysis_window)
         self._refresh_analysis()
         self.analysis_notebook.pack(expand=True, fill='both')
+
 
     def _refresh_analysis(self):
         """刷新分析内容"""
@@ -419,6 +468,11 @@ class TimeTrackerApp(tk.Tk):
         stats_frame = ttk.Frame(self.analysis_notebook)
         self._create_stat_charts(stats_frame, valid_records)
         self.analysis_notebook.add(stats_frame, text="统计")
+        
+        # 新增月视图内容
+        month_frame = ttk.Frame(self.analysis_notebook)
+        self._create_month_chart(month_frame)
+        self.analysis_notebook.add(month_frame, text="月视图")
 
     def _create_timeline_chart(self, parent, records, selected_date):
         """创建分段时间线图表（修复刻度标签问题）"""
@@ -539,6 +593,81 @@ class TimeTrackerApp(tk.Tk):
                startangle=90)
         ax2.set_title("Time Distribution")
 
+        canvas = FigureCanvasTkAgg(fig, master=parent)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+    def _create_month_chart(self, parent):
+        """创建月视图堆叠条形图"""
+        year = self.selected_year.get()
+        month = self.selected_month.get()
+        records = self.db.get_month_records(year, month)
+        
+        # 处理原始数据
+        activity_order = [
+            'Work', 'Study', 'Meeting', 'Exercise',
+            'Chores', 'Commute', 'Rest/Entertain', 'Sleep'
+        ]
+        
+        # 初始化每日数据存储结构
+        days_in_month = (datetime(year + (month // 12), (month % 12) + 1, 1) - 
+                        datetime(year, month, 1)).days
+        daily_data = {day: {act: 0 for act in activity_order} 
+                     for day in range(1, days_in_month + 1)}
+        
+        # 填充每日数据
+        for record in records:
+            start = datetime.strptime(record[1], '%Y-%m-%d %H:%M:%S')
+            end = datetime.strptime(record[2], '%Y-%m-%d %H:%M:%S')
+            act_type = record[0]
+            
+            # 处理跨日记录
+            current_day = start
+            while current_day.date() <= end.date():
+                day_start = max(start, current_day.replace(
+                    hour=0, minute=0, second=0))
+                day_end = min(end, current_day.replace(
+                    hour=23, minute=59, second=59))
+                
+                if current_day.month == month:  # 仅处理目标月份
+                    duration = (day_end - day_start).total_seconds() / 3600
+                    if duration > 0:
+                        daily_data[current_day.day][act_type] += duration
+                
+                current_day += timedelta(days=1)
+        
+        # 准备绘图数据
+        days = list(daily_data.keys())
+        bottom = [0] * len(days)
+        fig = plt.Figure(figsize=(14, 6), dpi=100)
+        ax = fig.add_subplot(111)
+        
+        # 按指定顺序反转绘制堆叠图
+        for act in reversed(activity_order):
+            values = [daily_data[d][act] for d in days]
+            ax.bar(
+            days, values, 
+            bottom=bottom,
+            color=COLOR_SCHEME[act],
+            edgecolor='white',
+            label=act  # 添加标签以便图例显示
+            )
+            bottom = [sum(x) for x in zip(bottom, values)]
+        
+        # 调整图例顺序
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles[::-1], labels[::-1], loc='upper right', bbox_to_anchor=(1.15, 1))
+        
+        # 设置图表样式
+        ax.set_xlabel("Day of Month")
+        ax.set_ylabel("Hours")
+        ax.set_title(f"Monthly Activity Distribution ({year}-{month:02d})")
+        ax.set_xticks(range(1, days_in_month + 1))
+        ax.set_ylim(0, 24)
+        ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1))
+        ax.grid(axis='y', alpha=0.3)
+        
+        # 显示图表
         canvas = FigureCanvasTkAgg(fig, master=parent)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
