@@ -14,4 +14,6 @@
 
 2025.2.7 添加了手动添加历史记录功能。
 ### 界面图片
-
+![image](https://github.com/user-attachments/assets/6de51e25-cf81-4516-bab7-e22f2e1e7ded)
+![image](https://github.com/user-attachments/assets/5051e43f-d0f5-45cd-b321-71c84e70cf72)
+![image](https://github.com/user-attachments/assets/6abf69f6-0d45-431a-afe4-0c271f7cdbb2)
