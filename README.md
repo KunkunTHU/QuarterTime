@@ -18,4 +18,3 @@
 ![image](https://github.com/user-attachments/assets/5051e43f-d0f5-45cd-b321-71c84e70cf72)
 ![image](https://github.com/user-attachments/assets/6abf69f6-0d45-431a-afe4-0c271f7cdbb2)
 ![image](https://github.com/user-attachments/assets/b81157fd-aa5b-410b-a1a3-939469f95182)
-![image](https://github.com/user-attachments/assets/0a85ef72-5ffd-4563-93ca-c7028d1a8070)
