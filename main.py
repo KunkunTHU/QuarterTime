@@ -197,7 +197,65 @@ class TimeTrackerDB:
                 conn.execute("DELETE FROM current_status")
                 conn.commit()
             tk.messagebox.showinfo("提示", "历史记录已清空")
-
+            
+    def manual_insert_activity(self, activity_type, start_time):
+        """手动插入活动记录并调整相邻记录"""
+        start_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        with self._get_connection() as conn:
+            # 查找需要分割的原记录
+            original = conn.execute('''
+                SELECT id, start_time, end_time 
+                FROM time_records 
+                WHERE start_time <= ? 
+                  AND (end_time >= ? OR end_time IS NULL)
+                ORDER BY start_time DESC
+                LIMIT 1
+            ''', (start_str, start_str)).fetchone()
+            
+            if original:
+                orig_id, orig_start, orig_end = original
+                # 更新原记录结束时间
+                conn.execute('''
+                    UPDATE time_records 
+                    SET end_time = ? 
+                    WHERE id = ?
+                ''', (start_str, orig_id))
+                
+                # 插入新记录
+                new_end = orig_end if orig_end else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                conn.execute('''
+                    INSERT INTO time_records 
+                        (activity_type, start_time, end_time)
+                    VALUES (?, ?, ?)
+                ''', (activity_type, start_str, new_end))
+                
+                # 处理后续记录
+                if orig_end:
+                    conn.execute('''
+                        UPDATE time_records 
+                        SET start_time = ? 
+                        WHERE start_time = ? AND id != last_insert_rowid()
+                    ''', (new_end, orig_end))
+                
+            else:  # 没有重叠记录的情况
+                # 查找下一个记录
+                next_record = conn.execute('''
+                    SELECT MIN(start_time) 
+                    FROM time_records 
+                    WHERE start_time > ?
+                ''', (start_str,)).fetchone()[0]
+                
+                end_time = next_record if next_record else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                conn.execute('''
+                    INSERT INTO time_records 
+                        (activity_type, start_time, end_time)
+                    VALUES (?, ?, ?)
+                ''', (activity_type, start_str, end_time))
+            
+            conn.commit()
+    
+    
 # ================= GUI界面模块 =================
 class TimeTrackerApp(tk.Tk):
     def __init__(self):
@@ -382,6 +440,71 @@ class TimeTrackerApp(tk.Tk):
             command=self.db._clear_history
         )
         clear_button.pack(pady=10)
+        
+        # 添加操作按钮区域
+        button_frame = ttk.Frame(history_window)
+        
+        ttk.Button(
+            button_frame,
+            text="手动添加记录",
+            command=self._show_manual_add_dialog
+        ).pack(side=tk.LEFT, padx=5)
+        
+        button_frame.pack(pady=10)
+        
+    def _show_manual_add_dialog(self):
+        """显示手动添加记录对话框"""
+        dialog = tk.Toplevel(self)
+        dialog.title("手动添加记录")
+        dialog.geometry("420x160")
+        
+        # 活动类型选择
+        ttk.Label(dialog, text="活动类型:").grid(row=0, column=0, padx=10, pady=10)
+        activity_var = tk.StringVar()
+        activity_combo = ttk.Combobox(
+            dialog,
+            textvariable=activity_var,
+            values=list(COLOR_SCHEME.keys()),
+            state="readonly"
+        )
+        activity_combo.grid(row=0, column=1, padx=10, pady=10)
+        
+        # 开始时间输入
+        ttk.Label(dialog, text="开始时间 (YYYY-MM-DD HH:MM:SS):").grid(row=1, column=0, padx=10, pady=10)
+        start_entry = ttk.Entry(dialog)
+        start_entry.grid(row=1, column=1, padx=10, pady=10)
+        
+        # 状态提示
+        status_label = ttk.Label(dialog, text="")
+        status_label.grid(row=2, columnspan=2)
+        
+        def validate_and_submit():
+            activity = activity_var.get()
+            start_str = start_entry.get()
+            
+            if not activity:
+                status_label.config(text="请选择活动类型", foreground="red")
+                return
+                
+            try:
+                start_time = datetime.strptime(start_str, '%Y-%m-%d %H:%M:%S')
+                if start_time > datetime.now():
+                    raise ValueError("不能添加未来时间的记录")
+                    
+                # 执行数据库操作
+                self.db.manual_insert_activity(activity, start_time)
+                # 刷新历史记录窗口
+                self.show_history()
+                dialog.destroy()
+                
+            except ValueError as e:
+                status_label.config(text=f"输入错误：{str(e)}", foreground="red")
+        
+        ttk.Button(
+            dialog,
+            text="提交",
+            command=validate_and_submit
+        ).grid(row=3, columnspan=2, pady=10)
 
     def show_analysis(self):
         """显示带日期选择的分析窗口（新增月视图选项卡）"""
