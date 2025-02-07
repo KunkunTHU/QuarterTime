@@ -10,7 +10,9 @@
 
 2025.2.4 修复了昨天延续状态不显示与统计的bug。
 
-2025.2.5 添加月视图功能。
+2025.2.5 添加了月视图功能。
+
+2025.2.7 添加了手动添加历史记录功能。
 ### 界面图片
 ![791188543bf4622f827089f7e6d5f6a](https://github.com/user-attachments/assets/bee008f8-1ff9-4916-9ab2-841d522036e3)
 ![e8f009b50dc67f666905d453c05b8d4](https://github.com/user-attachments/assets/62781703-a8ff-4037-8c7d-4be05aa6b4b2)
