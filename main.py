@@ -1,7 +1,7 @@
 import sqlite3
 import tkinter as tk
 from datetime import datetime, timedelta
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from contextlib import contextmanager
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -27,6 +27,36 @@ class TimeTrackerDB:
     def __init__(self, db_name='time_tracker.db'):
         self.db_name = db_name
         self._init_db()
+        self._init_cover_table()
+    
+    def _init_cover_table(self):
+        with self._get_connection() as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS covered_days (
+                    day DATE PRIMARY KEY,
+                    cover_type TEXT DEFAULT 'gradient'
+                )
+            ''')
+            
+    def cover_day(self, day):
+        """标记覆盖日期"""
+        with self._get_connection() as conn:
+            conn.execute('''
+                INSERT OR REPLACE INTO covered_days (day) 
+                VALUES (?)
+            ''', (day.strftime('%Y-%m-%d'),))
+            conn.commit()
+    
+    def get_covered_days(self, year, month):
+        """获取指定月份的覆盖日期"""
+        with self._get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT day 
+                FROM covered_days
+                WHERE strftime('%Y', day) = ? 
+                  AND strftime('%m', day) = ?
+            ''', (str(year), f"{month:02d}"))
+            return [datetime.strptime(row[0], '%Y-%m-%d').date() for row in cursor.fetchall()]
 
     @contextmanager
     def _get_connection(self):
@@ -721,10 +751,16 @@ class TimeTrackerApp(tk.Tk):
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
     def _create_month_chart(self, parent):
-        """创建月视图堆叠条形图"""
+        """创建月视图堆叠条形图（优化版）"""
         year = self.selected_year.get()
         month = self.selected_month.get()
         records = self.db.get_month_records(year, month)
+        covered_days = self.db.get_covered_days(year, month)
+        
+        # 创建自定义渐变色
+        from matplotlib.colors import LinearSegmentedColormap
+        pink_blue = LinearSegmentedColormap.from_list(
+            'pink_blue', ['#FFB6C1', '#87CEFA'], N=256)
         
         # 处理原始数据
         activity_order = [
@@ -735,8 +771,8 @@ class TimeTrackerApp(tk.Tk):
         # 初始化每日数据存储结构
         days_in_month = (datetime(year + (month // 12), (month % 12) + 1, 1) - 
                         datetime(year, month, 1)).days
-        daily_data = {day: {act: 0 for act in activity_order} 
-                     for day in range(1, days_in_month + 1)}
+        daily_data = {day: {'total': 0, 'data': {act: 0 for act in activity_order}} 
+                    for day in range(1, days_in_month + 1)}
         
         # 填充每日数据
         for record in records:
@@ -744,58 +780,166 @@ class TimeTrackerApp(tk.Tk):
             end = datetime.strptime(record[2], '%Y-%m-%d %H:%M:%S')
             act_type = record[0]
             
-            # 处理跨日记录
             current_day = start
             while current_day.date() <= end.date():
-                day_start = max(start, current_day.replace(
-                    hour=0, minute=0, second=0))
-                day_end = min(end, current_day.replace(
-                    hour=23, minute=59, second=59))
-                
-                if current_day.month == month:  # 仅处理目标月份
+                if current_day.month == month:
+                    day_num = current_day.day
+                    day_start = max(start, current_day.replace(hour=0, minute=0, second=0))
+                    day_end = min(end, current_day.replace(hour=23, minute=59, second=59))
+                    
                     duration = (day_end - day_start).total_seconds() / 3600
-                    if duration > 0:
-                        daily_data[current_day.day][act_type] += duration
+                    daily_data[day_num]['data'][act_type] += duration
+                    daily_data[day_num]['total'] += duration
                 
                 current_day += timedelta(days=1)
         
-        # 准备绘图数据
-        days = list(daily_data.keys())
-        bottom = [0] * len(days)
-        fig = plt.Figure(figsize=(14, 6), dpi=100)
+        # 准备绘图数据（包含平均列）
+        valid_days = [d for d in daily_data 
+                    if daily_data[d]['total'] >= 23.9 
+                    and datetime(year, month, d).date() not in covered_days]
+        
+        # 计算平均值
+        avg_data = {act: 0 for act in activity_order}
+        if valid_days:
+            for act in activity_order:
+                avg_data[act] = sum(daily_data[d]['data'][act] for d in valid_days) / len(valid_days)
+        
+        # 创建图表（包含平均列）
+        fig = plt.Figure(figsize=(16, 6), dpi=100)
         ax = fig.add_subplot(111)
         
-        # 按指定顺序反转绘制堆叠图
-        for act in reversed(activity_order):
-            values = [daily_data[d][act] for d in days]
-            ax.bar(
-            days, values, 
-            bottom=bottom,
-            color=COLOR_SCHEME[act],
-            edgecolor='white',
-            label=act  # 添加标签以便图例显示
-            )
-            bottom = [sum(x) for x in zip(bottom, values)]
+        # 调整x轴范围
+        max_day = days_in_month + 1  # 为平均列留位置
+        x_ticks = list(range(1, days_in_month + 1)) + [max_day]
+        x_labels = [str(d) for d in range(1, days_in_month + 1)] + ['Avg']
         
-        # 调整图例顺序
-        handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles[::-1], labels[::-1], loc='upper right', bbox_to_anchor=(1.15, 1))
+        # 绘制每日数据
+        for day in range(1, days_in_month + 1):
+            date_obj = datetime(year, month, day).date()
+            if date_obj in covered_days:
+                # 绘制覆盖效果
+                ax.bar(day, 24, color=pink_blue(0.08), edgecolor='white', alpha=0.6, width=0.8)
+                ax.text(day, 12, "Covered", ha='center', va='center', rotation=90, color='white')
+            else:
+                bottom = 0
+                for act in activity_order:
+                    value = daily_data[day]['data'][act]
+                    ax.bar(
+                        day, value, 
+                        bottom=bottom,
+                        color=COLOR_SCHEME[act],
+                        edgecolor='white',
+                        width=0.8
+                    )
+                    bottom += value
         
-        # 设置图表样式
+        # 绘制平均列
+        if valid_days:
+            bottom = 0
+            for act in activity_order:
+                value = avg_data[act]
+                ax.bar(
+                    max_day, value,
+                    bottom=bottom,
+                    color=COLOR_SCHEME[act],
+                    edgecolor='white',
+                    width=0.8
+                )
+                bottom += value
+        
+        # 设置样式
         ax.set_xlabel("Day of Month")
         ax.set_ylabel("Hours")
         ax.set_title(f"Monthly Activity Distribution ({year}-{month:02d})")
-        ax.set_xticks(range(1, days_in_month + 1))
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels(x_labels)
+        ax.set_xlim(0.5, max_day + 0.5)
         ax.set_ylim(0, 24)
-        ax.set_yticks(range(0, 25, 1))  # 设置Y轴刻度为1小时单位
-        ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1))
         ax.grid(axis='y', alpha=0.3)
+        
+        # 在GUI界面添加覆盖按钮（非图表内嵌）
+        control_frame = ttk.Frame(parent)
+        ttk.Button(
+            control_frame,
+            text="标记覆盖日期",
+            command=lambda: self._show_cover_dialog(year, month)
+        ).pack(side=tk.LEFT, padx=5)
+        control_frame.pack(fill=tk.X, pady=5)
         
         # 显示图表
         canvas = FigureCanvasTkAgg(fig, master=parent)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
+    def _cover_current_day(self, year, month):
+        """处理当日覆盖操作"""
+        dialog = tk.Toplevel(self)
+        dialog.title("选择覆盖日期")
+        dialog.geometry("300x150")
+        
+        ttk.Label(dialog, text="选择日期:").pack(pady=10)
+        
+        day_var = tk.IntVar(value=1)
+        day_spin = ttk.Spinbox(
+            dialog, 
+            from_=1, 
+            to=31, 
+            textvariable=day_var,
+            width=5
+        )
+        day_spin.pack()
+        
+        def confirm_cover():
+            try:
+                day = day_var.get()
+                target_date = datetime(year, month, day).date()
+                self.db.cover_day(target_date)
+                self._refresh_analysis()
+                dialog.destroy()
+            except ValueError as e:
+                messagebox.showerror("错误", f"无效日期: {str(e)}")
+        
+        ttk.Button(
+            dialog, 
+            text="确认覆盖", 
+            command=confirm_cover
+        ).pack(pady=10)
+        
+        
+    def _show_cover_dialog(self, year, month):
+        """显示覆盖日期对话框"""
+        dialog = tk.Toplevel(self)
+        dialog.title("选择覆盖日期")
+        dialog.geometry("300x150")
+        
+        ttk.Label(dialog, text="选择日期:").pack(pady=10)
+        
+        day_var = tk.IntVar(value=1)
+        day_spin = ttk.Spinbox(
+            dialog, 
+            from_=1, 
+            to=31, 
+            textvariable=day_var,
+            width=5
+        )
+        day_spin.pack()
+        
+        def confirm_cover():
+            try:
+                day = day_var.get()
+                target_date = datetime(year, month, day).date()
+                self.db.cover_day(target_date)
+                # 强制刷新分析视图
+                self._refresh_analysis()
+                dialog.destroy()
+            except ValueError as e:
+                messagebox.showerror("错误", f"无效日期: {str(e)}")
+        
+        ttk.Button(
+            dialog, 
+            text="确认覆盖", 
+            command=confirm_cover
+        ).pack(pady=10)
 
 # ================= 主程序入口 =================
 if __name__ == "__main__":
