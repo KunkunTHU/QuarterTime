@@ -822,7 +822,7 @@ class TimeTrackerApp(tk.Tk):
                 ax.text(day, 12, "Covered", ha='center', va='center', rotation=90, color='white')
             else:
                 bottom = 0
-                for act in activity_order:
+                for act in reversed(activity_order):
                     value = daily_data[day]['data'][act]
                     ax.bar(
                         day, value, 
@@ -836,7 +836,7 @@ class TimeTrackerApp(tk.Tk):
         # 绘制平均列
         if valid_days:
             bottom = 0
-            for act in activity_order:
+            for act in reversed(activity_order):
                 value = avg_data[act]
                 ax.bar(
                     max_day, value,
@@ -846,6 +846,10 @@ class TimeTrackerApp(tk.Tk):
                     width=0.8
                 )
                 bottom += value
+        
+        # 添加图例
+        handles = [plt.Rectangle((0,0),1,1, color=COLOR_SCHEME[act]) for act in activity_order]
+        ax.legend(handles, activity_order, title="Activity Type", bbox_to_anchor=(1, 1), loc='upper left')
         
         # 设置样式
         ax.set_xlabel("Day of Month")
