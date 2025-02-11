@@ -14,7 +14,9 @@
 
 2025.2.7 添加了手动添加历史记录功能。
 
-2025.2.11 添加了覆盖功能，月视图新增平均显示。
+2025.2.10 添加了覆盖功能，月视图新增平均显示。
+
+2025.2.11 添加了取消覆盖功能，优化覆盖显示。
 ### 界面图片
 ![image](https://github.com/user-attachments/assets/6de51e25-cf81-4516-bab7-e22f2e1e7ded)
 ![image](https://github.com/user-attachments/assets/5051e43f-d0f5-45cd-b321-71c84e70cf72)
