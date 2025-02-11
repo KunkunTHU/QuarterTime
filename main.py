@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.dates as mdates
+import numpy as np
 
 # ================= 颜色配置（新增） =================
 # 【NOTICE】在这里调制你喜欢的配色~
@@ -283,6 +284,13 @@ class TimeTrackerDB:
                     VALUES (?, ?, ?)
                 ''', (activity_type, start_str, end_time))
             
+            conn.commit()
+            
+            
+    def uncover_day(self, day):
+        """取消覆盖日期"""
+        with self._get_connection() as conn:
+            conn.execute('DELETE FROM covered_days WHERE day = ?', (day.strftime('%Y-%m-%d'),))
             conn.commit()
     
     
@@ -760,7 +768,7 @@ class TimeTrackerApp(tk.Tk):
         # 创建自定义渐变色
         from matplotlib.colors import LinearSegmentedColormap
         pink_blue = LinearSegmentedColormap.from_list(
-            'pink_blue', ['#FFB6C1', '#87CEFA'], N=256)
+            'pink_blue', ['#FF69B4', '#4169E1'], N=256)  # 修改颜色起止点
         
         # 处理原始数据
         activity_order = [
@@ -817,9 +825,19 @@ class TimeTrackerApp(tk.Tk):
         for day in range(1, days_in_month + 1):
             date_obj = datetime(year, month, day).date()
             if date_obj in covered_days:
-                # 绘制覆盖效果
-                ax.bar(day, 24, color=pink_blue(0.08), edgecolor='white', alpha=0.6, width=0.8)
-                ax.text(day, 12, "Covered", ha='center', va='center', rotation=90, color='white')
+                # 绘制渐变覆盖效果
+                gradient = np.linspace(0, 1, 256).reshape(1, -1)
+                gradient = np.vstack((gradient, gradient))
+                ax.imshow(
+                    gradient, 
+                    aspect='auto', 
+                    cmap=pink_blue,
+                    extent=[day-0.4, day+0.4, 0, 24],  # 调整宽度与普通条形一致
+                    alpha=0.24,
+                    origin='lower'
+                )
+                ax.text(day, 12, "Covered", ha='center', va='center', 
+                       rotation=90, color='white', fontweight='bold')
             else:
                 bottom = 0
                 for act in reversed(activity_order):
@@ -859,13 +877,14 @@ class TimeTrackerApp(tk.Tk):
         ax.set_xticklabels(x_labels)
         ax.set_xlim(0.5, max_day + 0.5)
         ax.set_ylim(0, 24)
+        ax.set_yticks(range(0, 25, 1))  # 以1h为单位设置Y轴刻度
         ax.grid(axis='y', alpha=0.3)
         
         # 在GUI界面添加覆盖按钮（非图表内嵌）
         control_frame = ttk.Frame(parent)
         ttk.Button(
             control_frame,
-            text="标记覆盖日期",
+            text="标记覆盖日期(Cover/Uncover)",
             command=lambda: self._show_cover_dialog(year, month)
         ).pack(side=tk.LEFT, padx=5)
         control_frame.pack(fill=tk.X, pady=5)
@@ -911,29 +930,49 @@ class TimeTrackerApp(tk.Tk):
         
         
     def _show_cover_dialog(self, year, month):
-        """显示覆盖日期对话框"""
+        """显示覆盖/取消覆盖对话框"""
         dialog = tk.Toplevel(self)
-        dialog.title("选择覆盖日期")
-        dialog.geometry("300x150")
+        dialog.title("日期覆盖管理")
+        dialog.geometry("320x180")
         
-        ttk.Label(dialog, text="选择日期:").pack(pady=10)
+        ttk.Label(dialog, text="请选择日期和操作类型:").pack(pady=10)
         
+        # 日期选择
+        day_frame = ttk.Frame(dialog)
+        ttk.Label(day_frame, text="日期:").pack(side=tk.LEFT)
         day_var = tk.IntVar(value=1)
         day_spin = ttk.Spinbox(
-            dialog, 
+            day_frame, 
             from_=1, 
             to=31, 
             textvariable=day_var,
             width=5
         )
-        day_spin.pack()
+        day_spin.pack(side=tk.LEFT, padx=5)
+        day_frame.pack()
         
-        def confirm_cover():
+        # 操作类型选择
+        action_frame = ttk.Frame(dialog)
+        ttk.Label(action_frame, text="操作:").pack(side=tk.LEFT)
+        action_var = tk.StringVar(value="cover")
+        ttk.Radiobutton(
+            action_frame, text="覆盖", 
+            variable=action_var, value="cover"
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(
+            action_frame, text="取消覆盖", 
+            variable=action_var, value="uncover"
+        ).pack(side=tk.LEFT, padx=5)
+        action_frame.pack(pady=10)
+        
+        def perform_action():
             try:
                 day = day_var.get()
                 target_date = datetime(year, month, day).date()
-                self.db.cover_day(target_date)
-                # 强制刷新分析视图
+                if action_var.get() == "cover":
+                    self.db.cover_day(target_date)
+                else:
+                    self.db.uncover_day(target_date)
                 self._refresh_analysis()
                 dialog.destroy()
             except ValueError as e:
@@ -941,10 +980,10 @@ class TimeTrackerApp(tk.Tk):
         
         ttk.Button(
             dialog, 
-            text="确认覆盖", 
-            command=confirm_cover
+            text="确认执行", 
+            command=perform_action
         ).pack(pady=10)
-
+        
 # ================= 主程序入口 =================
 if __name__ == "__main__":
     app = TimeTrackerApp()
