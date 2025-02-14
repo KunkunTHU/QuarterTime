@@ -200,11 +200,11 @@ class TimeTrackerDB:
             return cursor.fetchall()
         
     def get_month_records(self, year, month):
-        """获取指定月份所有日期的记录（处理跨日记录）"""
+        """获取指定月份所有日期的记录（精确处理跨日记录）"""
         start_date = datetime(year, month, 1)
         next_month = month + 1 if month < 12 else 1
         next_year = year if month < 12 else year + 1
-        end_date = datetime(next_year, next_month, 1) - timedelta(days=1)
+        end_date = datetime(next_year, next_month, 1) - timedelta(seconds=1)
         
         with self._get_connection() as conn:
             cursor = conn.execute(f'''
@@ -782,24 +782,35 @@ class TimeTrackerApp(tk.Tk):
         daily_data = {day: {'total': 0, 'data': {act: 0 for act in activity_order}} 
                     for day in range(1, days_in_month + 1)}
         
-        # 填充每日数据
+        # 改进后的时间分割算法
         for record in records:
-            start = datetime.strptime(record[1], '%Y-%m-%d %H:%M:%S')
-            end = datetime.strptime(record[2], '%Y-%m-%d %H:%M:%S')
-            act_type = record[0]
-            
-            current_day = start
-            while current_day.date() <= end.date():
-                if current_day.month == month:
-                    day_num = current_day.day
-                    day_start = max(start, current_day.replace(hour=0, minute=0, second=0))
-                    day_end = min(end, current_day.replace(hour=23, minute=59, second=59))
-                    
-                    duration = (day_end - day_start).total_seconds() / 3600
-                    daily_data[day_num]['data'][act_type] += duration
-                    daily_data[day_num]['total'] += duration
+            try:
+                start = datetime.strptime(record[1], '%Y-%m-%d %H:%M:%S')
+                end = datetime.strptime(record[2], '%Y-%m-%d %H:%M:%S') if record[2] else datetime.now()
+                act_type = record[0]  # 始终使用记录中的原始活动类型
                 
-                current_day += timedelta(days=1)
+                # 确保时间范围有效性
+                if start >= end:
+                    continue
+                    
+                current_day = start.date()
+                last_day = end.date()
+                
+                while current_day <= last_day:
+                    if current_day.month == month and current_day.year == year:
+                        day_start = max(start, datetime.combine(current_day, datetime.min.time()))
+                        day_end = min(end, datetime.combine(current_day, datetime.max.time()))
+                        
+                        if day_start < day_end:
+                            duration = (day_end - day_start).total_seconds() / 3600
+                            daily_data[current_day.day]['data'][act_type] += duration
+                            daily_data[current_day.day]['total'] += duration
+                            
+                    current_day += timedelta(days=1)
+                    
+            except Exception as e:
+                print(f"Error processing record {record}: {str(e)}")
+                continue
         
         # 准备绘图数据（包含平均列）
         valid_days = [d for d in daily_data 
@@ -845,7 +856,7 @@ class TimeTrackerApp(tk.Tk):
                     ax.bar(
                         day, value, 
                         bottom=bottom,
-                        color=COLOR_SCHEME[act],
+                        color=COLOR_SCHEME.get(act, "#CCCCCC"),
                         edgecolor='white',
                         width=0.8
                     )
